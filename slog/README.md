@@ -18,12 +18,15 @@ Attention: when init log by flags,you must call InitByFlags.
 option level: debug verbose(verbo) info warn error note
 
 
+## Example
+```
 func init() {
-	flag.Set("logmode", "stdout:debug,file:verbo")
+	flag.Set("logmode", "stdout:debug,file:warn")
+	flag.Set("logf_ksize","200")
 	slog.InitByFlags()
 }
 func main() {
-	for i := 0; i < 20000; i++ {
+	for i := 0; i < 10000; i++ {
 		<-time.After(time.Nanosecond)
 		slog.Debug("debug msg:", i)
 		slog.Debugf("debugf msg %d", i)
@@ -35,7 +38,8 @@ func main() {
 		slog.Warnf("Warnf msg %d", i)
 		slog.Error("Error msg:", i)
 		slog.Errorf("Errorf msg %d", i)
+		slog.Note("important info, not an error:", i)
 	}
-
-	<-time.After(5 * time.Second)
+	slog.Exit("wait for flush to file.")
 }
+```

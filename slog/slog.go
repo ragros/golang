@@ -169,7 +169,7 @@ func stringLev(l string) lev {
 		return LevVERBOSE
 	case "INFO":
 		return LevINFO
-	case "WARN":
+	case "WARN", "WARNING":
 		return LevWARN
 	case "ERROR":
 		return LevERROR
