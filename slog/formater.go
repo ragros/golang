@@ -35,7 +35,7 @@ func (this *DefaultFormater) Format(calldepth int, tag, msg string) *string {
 	if ml > 0 && msg[ml-1] == '\n' {
 		ml -= 1
 	}
-	h := fmt.Sprintf("[%02d-%02d %02d:%02d:%02d.%03d]%s %s (%s:%d)\n",
+	h := fmt.Sprintf("[%02d-%02d %02d:%02d:%02d.%03d]%s%s(%s:%d)\n",
 		m, d, t.Hour(), t.Minute(), t.Second(), t.Nanosecond()/1000000,
 		tag, msg[:ml], file, line)
 	return &h
