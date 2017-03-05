@@ -1,6 +1,6 @@
 /*
 slog is a micro log libray.log format is use default.
-log use ConsolePrinter as default(least level) ,you can use it without any configuration.
+log use ConsolePrinter as default(at level DEBUG) ,you can use it without any configuration.
 
 in advance,use cmdline args configure you output mode and other options.once operated the default
 console printer is no longer exist.so add it if needed.
@@ -28,7 +28,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -57,18 +56,12 @@ const (
 	LevWARN    lev = 8
 	LevERROR   lev = 0x10
 	LevNOTE    lev = 0x20
-	LevFATAL   lev = 0x40
+	levFATAL   lev = 0x40
 )
 
 var (
-	_flags  flags
-	rootLev lev
-	errch   chan *string = make(chan *string)
-	f       _Formater    = new(_DefaultFormater)
-	lp      []*levPrinter
-	//mux     sync.RWMutex
-	//config  bool
-	Logger *logger = &logger{}
+	_flags flags
+	preset *logger = New(LevDEBUG, NewConsole())
 )
 
 func init() {
@@ -82,12 +75,6 @@ func init() {
 	flag.StringVar(&_flags.udp_addr, "logu_addr", "localhost:12345", "udp log addr")
 	flag.IntVar(&_flags.udp_blockmillis, "logu_blockmillis", 50, "udp loging blocked working thread if output is busy")
 	flag.IntVar(&_flags.udp_bufferrow, "logu_bufferrow", (1024 * 24), "udp logger cached row number without blocking if output is busy")
-	lp = []*levPrinter{
-		&levPrinter{LevDEBUG, &_ConsolePrinter{}},
-	}
-	rootLev = LevDEBUG
-	//go flusherr()
-
 }
 
 /*
@@ -98,16 +85,17 @@ func InitByFlags() {
 		flag.Parse()
 	}
 	alp := _flags.parse()
-	if len(alp) != 0 {
-		lp = alp
-		rootLev = LevNOTE
+	if len(alp) == 0 {
+		return
 	}
+	preset.Reset()
 	for _, p := range alp {
-		if p.l < rootLev {
-			rootLev = p.l
-		}
+		preset.AddPrinter(p.l, p.p)
 	}
+}
 
+func Default() *logger {
+	return preset
 }
 
 func (this *flags) parse() []*levPrinter {
@@ -124,16 +112,17 @@ func (this *flags) parse() []*levPrinter {
 	for _, m := range am {
 		ml := strings.Split(m, ":")
 		if ml[0] == "FILE" {
-			p, err := _NewFilePrinter(this.file_bufferrow, this.file_dir, this.file_name,
-				this.file_ksize, this.file_backup, this.file_blockmillis)
+			p, err := NewFilePrinter(this.file_ksize, this.file_backup,
+				this.file_dir, this.file_name,
+				this.file_blockmillis, this.file_bufferrow)
 			if err != nil {
 				panic(err)
 			}
 			l = append(l, &levPrinter{stringLev(ml[1]), p})
 		} else if ml[0] == "STDOUT" {
-			l = append(l, &levPrinter{stringLev(ml[1]), &_ConsolePrinter{}})
+			l = append(l, &levPrinter{stringLev(ml[1]), &Console{}})
 		} else if ml[0] == "UDP" {
-			p, err := _NewUdpNetPrinter(this.udp_addr, this.udp_bufferrow, this.udp_blockmillis)
+			p, err := NewUdpPrinter(this.udp_addr, this.udp_bufferrow, this.udp_blockmillis)
 			if err != nil {
 				panic(err)
 			}
@@ -146,19 +135,19 @@ func (this *flags) parse() []*levPrinter {
 func (this *lev) String() string {
 	switch *this {
 	case LevDEBUG:
-		return "DEBUG"
+		return "[DEBUG]"
 	case LevVERBOSE:
-		return "VERBO"
+		return "[VERBO]"
 	case LevINFO:
-		return "INFO"
+		return "[INFO ]"
 	case LevWARN:
-		return "WARN"
+		return "[WARN ]"
 	case LevERROR:
-		return "ERROR"
+		return "[ERROR]"
 	case LevNOTE:
-		return "NOTE"
+		return "[NOTE ]"
 	default:
-		return "FATAL"
+		return "[FATAL]"
 	}
 }
 
@@ -181,152 +170,214 @@ func stringLev(l string) lev {
 }
 
 type logger struct {
+	rootLev lev
+	f       Formater
+	lp      []*levPrinter
 }
 
-func (*logger) Debug(args ...interface{}) {
-	out(LevDEBUG, args...)
+func New(lv lev, p Printer) *logger {
+	l := &logger{
+		rootLev: lv,
+		f:       &DefaultFormater{},
+		lp:      []*levPrinter{&levPrinter{lv, p}},
+	}
+	return l
 }
-func (*logger) Verbose(args ...interface{}) {
-	out(LevVERBOSE, args...)
+
+func (l *logger) AddPrinter(lv lev, p Printer) *logger {
+	if lv < l.rootLev {
+		l.rootLev = lv
+	}
+	l.lp = append(l.lp, &levPrinter{lv, p})
+	return l
 }
-func (*logger) Info(args ...interface{}) {
-	out(LevINFO, args...)
+
+func (l *logger) SetFormater(f Formater) *logger {
+	l.f = f
+	return l
 }
-func (*logger) Warn(args ...interface{}) {
-	out(LevWARN, args...)
+
+func (l *logger) Reset() *logger {
+	l.lp = nil
+	l.rootLev = LevNOTE
+	l.f = &DefaultFormater{}
+	return l
 }
-func (*logger) Error(args ...interface{}) {
-	out(LevERROR, args...)
+
+func (l *logger) Debug(args ...interface{}) {
+	l.out(LevDEBUG, args...)
 }
-func (*logger) Note(args ...interface{}) {
-	out(LevNOTE, args...)
+func (l *logger) Verbose(args ...interface{}) {
+	l.out(LevVERBOSE, args...)
 }
-func (*logger) Fatal(args ...interface{}) {
-	out(LevFATAL, args...)
-	printStack(true)
+func (l *logger) Info(args ...interface{}) {
+	l.out(LevINFO, args...)
+}
+func (l *logger) Warn(args ...interface{}) {
+	l.out(LevWARN, args...)
+}
+func (l *logger) Error(args ...interface{}) {
+	l.out(LevERROR, args...)
+}
+func (l *logger) Note(args ...interface{}) {
+	l.out(LevNOTE, args...)
+}
+func (l *logger) Fatal(args ...interface{}) {
+	l.out(levFATAL, args...)
+	l.printStack(true)
 	<-time.After(2 * time.Second)
 	os.Exit(2)
 }
-func (*logger) Exit(args ...interface{}) {
-	out(LevNOTE, args...)
+func (l *logger) Exit(args ...interface{}) {
+	l.out(LevNOTE, args...)
 	<-time.After(2 * time.Second)
 	os.Exit(2)
 }
 
-func (*logger) Debugf(format string, args ...interface{}) {
-	outf(LevDEBUG, format, args...)
+func (l *logger) Debugf(format string, args ...interface{}) {
+	l.outf(LevDEBUG, format, args...)
 }
-func (*logger) Verbosef(format string, args ...interface{}) {
-	outf(LevVERBOSE, format, args...)
+func (l *logger) Verbosef(format string, args ...interface{}) {
+	l.outf(LevVERBOSE, format, args...)
 }
-func (*logger) Infof(format string, args ...interface{}) {
-	outf(LevINFO, format, args...)
+func (l *logger) Infof(format string, args ...interface{}) {
+	l.outf(LevINFO, format, args...)
 }
-func (*logger) Warnf(format string, args ...interface{}) {
-	outf(LevWARN, format, args...)
+func (l *logger) Warnf(format string, args ...interface{}) {
+	l.outf(LevWARN, format, args...)
 }
-func (*logger) Errorf(format string, args ...interface{}) {
-	outf(LevERROR, format, args...)
+func (l *logger) Errorf(format string, args ...interface{}) {
+	l.outf(LevERROR, format, args...)
 }
-func (*logger) Notef(format string, args ...interface{}) {
-	outf(LevNOTE, format, args...)
+func (l *logger) Notef(format string, args ...interface{}) {
+	l.outf(LevNOTE, format, args...)
 }
-func (*logger) Fatalf(format string, args ...interface{}) {
-	outf(LevFATAL, format, args...)
-	printStack(true)
+func (l *logger) Fatalf(format string, args ...interface{}) {
+	l.outf(levFATAL, format, args...)
+	l.printStack(true)
 	<-time.After(2 * time.Second)
 	os.Exit(2)
 }
-func (*logger) Exitf(format string, args ...interface{}) {
-	outf(LevNOTE, format, args...)
+func (l *logger) Exitf(format string, args ...interface{}) {
+	l.outf(LevNOTE, format, args...)
 	<-time.After(2 * time.Second)
 	os.Exit(2)
 }
 
 func Debug(args ...interface{}) {
-	out(LevDEBUG, args...)
+	preset.out(LevDEBUG, args...)
 }
 func Verbose(args ...interface{}) {
-	out(LevVERBOSE, args...)
+	preset.out(LevVERBOSE, args...)
 }
 func Info(args ...interface{}) {
-	out(LevINFO, args...)
+	preset.out(LevINFO, args...)
 }
 func Warn(args ...interface{}) {
-	out(LevWARN, args...)
+	preset.out(LevWARN, args...)
 }
 func Error(args ...interface{}) {
-	out(LevERROR, args...)
+	preset.out(LevERROR, args...)
 }
 func Note(args ...interface{}) {
-	out(LevNOTE, args...)
+	preset.out(LevNOTE, args...)
 }
 func Fatal(args ...interface{}) {
-	out(LevFATAL, args...)
-	printStack(true)
+	preset.out(levFATAL, args...)
+	preset.printStack(true)
 	<-time.After(2 * time.Second)
-
 	os.Exit(2)
 }
 func Exit(args ...interface{}) {
-	out(LevNOTE, args...)
+	preset.out(LevNOTE, args...)
 	<-time.After(2 * time.Second)
 	os.Exit(2)
 }
 
 func Debugf(format string, args ...interface{}) {
-	outf(LevDEBUG, format, args...)
+	preset.outf(LevDEBUG, format, args...)
 }
 func Verbosef(format string, args ...interface{}) {
-	outf(LevVERBOSE, format, args...)
+	preset.outf(LevVERBOSE, format, args...)
 }
 func Infof(format string, args ...interface{}) {
-	outf(LevINFO, format, args...)
+	preset.outf(LevINFO, format, args...)
 }
 func Warnf(format string, args ...interface{}) {
-	outf(LevWARN, format, args...)
+	preset.outf(LevWARN, format, args...)
 }
 func Errorf(format string, args ...interface{}) {
-	outf(LevERROR, format, args...)
+	preset.outf(LevERROR, format, args...)
 }
 func Notef(format string, args ...interface{}) {
-	outf(LevNOTE, format, args...)
+	preset.outf(LevNOTE, format, args...)
 }
 func Fatalf(format string, args ...interface{}) {
-	outf(LevFATAL, format, args...)
-	printStack(true)
+	preset.outf(levFATAL, format, args...)
+	preset.printStack(true)
 	<-time.After(2 * time.Second)
 	os.Exit(2)
 }
 func Exitf(format string, args ...interface{}) {
-	outf(LevNOTE, format, args...)
+	preset.outf(LevNOTE, format, args...)
 	<-time.After(2 * time.Second)
 	os.Exit(2)
 }
 
-func out(lv lev, args ...interface{}) {
-	if rootLev <= lv {
-		s := f.Format(lv, args...)
-		for _, n := range lp {
+/**
+Print,Printf,Println,Output to adapt standard lib log
+**/
+func (l *logger) Print(args ...interface{}) {
+	l.Output(2, fmt.Sprint(args...))
+}
+func (l *logger) Println(args ...interface{}) {
+	l.Output(2, fmt.Sprint(args...))
+}
+func (l *logger) Printf(format string, args ...interface{}) {
+	l.Output(2, fmt.Sprintf(format, args...))
+}
+
+//depth(Output)=1
+func (l *logger) Output(calldepth int, msg string) error {
+	s := l.f.Format(calldepth, "", msg)
+	ps := l.lp
+	for _, n := range ps {
+		if err := n.p.Print(s); err != nil {
+			l.slogerr(err)
+		}
+	}
+	return nil
+}
+
+func (l *logger) out(lv lev, args ...interface{}) {
+	if l.rootLev <= lv {
+		s := l.f.Format(2, lv.String(), fmt.Sprint(args...))
+		ps := l.lp
+		for _, n := range ps {
 			if lv >= n.l {
-				n.p.Print(s)
+				if err := n.p.Print(s); err != nil {
+					l.slogerr(err)
+				}
 			}
 		}
 	}
 }
 
-func outf(lv lev, format string, args ...interface{}) {
-	if rootLev <= lv {
-		s := f.Formatf(lv, format, args...)
-		for _, n := range lp {
+func (l *logger) outf(lv lev, format string, args ...interface{}) {
+	if l.rootLev <= lv {
+		s := l.f.Format(2, lv.String(), fmt.Sprintf(format, args...))
+		ps := l.lp
+		for _, n := range ps {
 			if lv >= n.l {
-				n.p.Print(s)
+				if err := n.p.Print(s); err != nil {
+					l.slogerr(err)
+				}
 			}
 		}
 	}
 }
 
-func printStack(all bool) {
+func (l *logger) printStack(all bool) {
 	n := 500
 	if all {
 		n = 1000
@@ -343,40 +394,20 @@ func printStack(all bool) {
 		}
 	}
 	ms := string(trace[:n])
-	for _, n := range lp {
-		n.p.Print(&ms)
+	ps := l.lp
+	for _, n := range ps {
+		if err := n.p.Print(&ms); err != nil {
+			l.slogerr(err)
+		}
 	}
 }
 
 type levPrinter struct {
 	l lev
-	p _Printer
+	p Printer
 }
 
 //when log system has error,we will try record as much as possible(unrealize)
-func slogerr(s *string) {
-	select {
-	case errch <- s:
-	default:
-		fmt.Fprint(os.Stderr, "slogerr timeout:"+*s)
-	}
-}
-func flusherr() {
-	for s := range errch {
-		fmt.Fprint(os.Stderr, *s)
-	}
-}
-
-func WriteFile(name string, format string, args ...interface{}) {
-	s := fmt.Sprintf(format, args...)
-	l := len(s)
-	if l > 0 && s[l-1] == '\n' {
-		s = s[0 : l-1]
-	}
-	f, err := os.OpenFile(filepath.Join(_flags.file_dir, name+".log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	f.WriteString(fmt.Sprintf("[%s]%s\n", time.Now().Format("01-02 15:04:05.999"), s))
+func (l *logger) slogerr(err error) {
+	fmt.Fprint(os.Stderr, err.Error())
 }

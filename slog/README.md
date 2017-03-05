@@ -43,3 +43,12 @@ func main() {
 	slog.Exit("wait for flush to file.")
 }
 ```
+
+## Logger instance
+
+user New() get a new Logger instance,support Print,Println,Printf,Output as std lib log.
+```	
+f, _ := slog.NewFilePrinter(1024, 9, "", "", 0, 0)
+logger := slog.New(slog.LevINFO, f).AddPrinter(slog.LevINFO, slog.NewConsole())
+logger.Print("hello")
+```

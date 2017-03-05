@@ -2,6 +2,7 @@ package slog
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,18 +10,23 @@ import (
 	"time"
 )
 
-type _Printer interface {
-	Print(s *string)
+type Printer interface {
+	Print(s *string) error
 }
 
-type _ConsolePrinter struct {
+type Console struct {
 }
 
-func (this *_ConsolePrinter) Print(s *string) {
-	fmt.Fprint(os.Stderr, *s)
+func NewConsole() *Console {
+	return &Console{}
 }
 
-type _FilePrinter struct {
+func (this *Console) Print(s *string) error {
+	_, err := fmt.Fprint(os.Stderr, *s)
+	return err
+}
+
+type FilePrinter struct {
 	ch          chan *string
 	blockMillis time.Duration
 	baseName    string
@@ -30,17 +36,14 @@ type _FilePrinter struct {
 	backup      int
 }
 
-/*
-文件输出器
-参数：
-	maxrn:缓冲队列长度(记录条数)
-	dir:日志输出目录,""为当前
-	name:日志文件名称,""为程序名
-	ksize:日志文件滚动大小，以KB为单位
-	backup:日志文件滚动个数
-	blockMillis:缓冲队列满时，日志线程阻塞工作线程最大毫秒数。越大则丢日志的可能性越低
-*/
-func _NewFilePrinter(maxrn int, dir string, name string, ksize int, backup int, blockMillis int) (_Printer, error) {
+// NewFilePrinter
+//	sizeKB: 日志文件滚动大小，以KB为单位
+//	rollCount:日志文件滚动个数
+//	dir:   日志输出目录,""为当前
+//	name:  日志文件名称,""为程序名
+//	blockMillis:缓冲队列满时，日志线程阻塞工作线程最大毫秒数。越大则丢日志的可能性越低
+//	buffer_rows:缓冲队列长度(记录条数)
+func NewFilePrinter(sizeKB, rollCount int, dir, name string, blockMillis, bufferRows int) (Printer, error) {
 	var e error
 	if name == "" {
 		name = filepath.Base(os.Args[0])
@@ -51,11 +54,17 @@ func _NewFilePrinter(maxrn int, dir string, name string, ksize int, backup int, 
 	if blockMillis < 10 {
 		blockMillis = 10
 	}
-	p := &_FilePrinter{
-		ch:          make(chan *string, maxrn),
-		rsize:       ksize * 1024,
+	if bufferRows < 1024 {
+		bufferRows = 1024
+	}
+	if dir == "" {
+		dir = "."
+	}
+	p := &FilePrinter{
+		ch:          make(chan *string, bufferRows),
+		rsize:       sizeKB * 1024,
 		blockMillis: time.Millisecond * time.Duration(blockMillis),
-		backup:      backup,
+		backup:      rollCount,
 	}
 	dir, e = filepath.Abs(dir)
 	if e != nil {
@@ -79,16 +88,16 @@ func _NewFilePrinter(maxrn int, dir string, name string, ksize int, backup int, 
 	return p, nil
 }
 
-func (this *_FilePrinter) Print(s *string) {
+func (this *FilePrinter) Print(s *string) error {
 	select {
 	case this.ch <- s:
 	case <-time.After(this.blockMillis):
-		es := "FilePrinter enqueue timeout:" + *s
-		slogerr(&es)
+		return fmt.Errorf("enqueue timeout:%s", *s)
 	}
+	return nil
 }
 
-func (this *_FilePrinter) checkfile() {
+func (this *FilePrinter) checkfile() {
 	if this.csize > this.rsize {
 		this.file.Sync()
 		this.file.Close()
@@ -98,7 +107,7 @@ func (this *_FilePrinter) checkfile() {
 	}
 }
 
-func (this *_FilePrinter) roll() {
+func (this *FilePrinter) roll() {
 	if this.backup == 0 {
 		os.Remove(this.baseName)
 		return
@@ -112,7 +121,7 @@ func (this *_FilePrinter) roll() {
 	os.Rename(this.baseName, this.baseName+".1")
 }
 
-func (this *_FilePrinter) flush() {
+func (this *FilePrinter) flush() {
 	var n int
 	var e error
 	for {
@@ -137,5 +146,52 @@ func (this *_FilePrinter) flush() {
 			this.file.Sync()
 		}
 		<-time.After(time.Second)
+	}
+}
+
+type UdpPrinter struct {
+	ch          chan *string
+	blockMillis time.Duration
+	conn        *net.UDPConn
+}
+
+func NewUdpPrinter(addr string, maxrn int, blockMillis int) (Printer, error) {
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+	if blockMillis < 10 {
+		blockMillis = 10
+	}
+	p := &UdpPrinter{
+		ch:          make(chan *string, maxrn),
+		blockMillis: time.Millisecond * time.Duration(blockMillis),
+	}
+	p.conn, err = net.DialUDP("udp", nil, udpAddr)
+	if err != nil {
+		return nil, err
+	}
+	t := time.Now()
+	s := t.Format("[01-02 15:04:05.999][NOTE ] ------------ start ------------\n")
+	p.Print(&s)
+	go p.flush()
+	return p, err
+
+}
+
+func (this *UdpPrinter) Print(s *string) error {
+	select {
+	case this.ch <- s:
+	case <-time.After(this.blockMillis):
+		return fmt.Errorf("enqueue timeout:%s", *s)
+	}
+	return nil
+}
+
+func (this *UdpPrinter) flush() {
+	var bs []byte
+	for v := range this.ch {
+		bs = []byte(*v)
+		this.conn.Write(bs)
 	}
 }
