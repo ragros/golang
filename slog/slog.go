@@ -62,16 +62,8 @@ const (
 )
 
 var (
-	_flags        flags
-	preset        *logger = New(LevDEBUG, NewConsole())
-	adapterTagMap         = map[int]string{
-		logadapter.LevDEBUG: "[DEBUG]",
-		logadapter.LevVERBO: "[VERBO]",
-		logadapter.LevINFO:  "[INFO ]",
-		logadapter.LevWARN:  "[WARN ]",
-		logadapter.LevERROR: "[ERROR]",
-		logadapter.LevNOTE:  "[NOTE ]",
-	}
+	_flags flags
+	preset *logger = New(LevDEBUG, NewConsole())
 )
 
 func init() {
@@ -348,8 +340,8 @@ func (l *logger) Printf(format string, args ...interface{}) {
 	l.Outputln(2, logadapter.LevNOTE, fmt.Sprintf(format, args...))
 }
 
-func (l *logger) Outputln(calldepth, lev int, msg string) {
-	s := l.f.Format(calldepth, adapterTagMap[lev], msg)
+func (l *logger) Outputln(calldepth int, lev, msg string) {
+	s := l.f.Format(calldepth, lev, msg)
 	ps := l.lp
 	for _, n := range ps {
 		if err := n.p.Print(s); err != nil {

@@ -6,35 +6,24 @@ import (
 )
 
 const (
-	LevDEBUG = 0x010
-	LevVERBO = 0x020
-	LevINFO  = 0x040
-	LevWARN  = 0x080
-	LevERROR = 0x100
-	LevNOTE  = 0x200
-)
-
-var (
-	levdescMap = map[int]string{
-		LevDEBUG: "[DEBUG]",
-		LevVERBO: "[VERBO]",
-		LevINFO:  "[INFO ]",
-		LevWARN:  "[WARN ]",
-		LevERROR: "[ERROR]",
-		LevNOTE:  "[NOTE ]",
-	}
+	LevDEBUG = "[DEBUG]"
+	LevVERBO = "[VERBO]"
+	LevINFO  = "[INFO ]"
+	LevWARN  = "[WARN ]"
+	LevERROR = "[ERROR]"
+	LevNOTE  = "[NOTE ]"
 )
 
 type ILogger interface {
-	Outputln(depth, lev int, msg string)
+	Outputln(depth int, lev, msg string)
 }
 
 type stdLogWarper struct {
 	std *log.Logger
 }
 
-func (l *stdLogWarper) Outputln(depth, lev int, msg string) {
-	l.std.Output(depth+1, levdescMap[lev]+msg)
+func (l *stdLogWarper) Outputln(depth int, lev, msg string) {
+	l.std.Output(depth+1, lev+msg)
 }
 
 type logger struct {
