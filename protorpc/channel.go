@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/twinj/uuid"
 
 	pb "github.com/ragros/golang/protorpc/internal"
 )
@@ -23,7 +22,6 @@ var (
 )
 
 type Channel struct {
-	uid      string
 	conn     net.Conn
 	handlers map[string]Handler
 	rspCh    map[string]chan *Response
@@ -34,9 +32,8 @@ type Channel struct {
 	mux sync.Mutex
 }
 
-func NewChannel(hs map[string]Handler, listener ChannelListener) *Channel {
+func newChannel(hs map[string]Handler, listener ChannelListener) *Channel {
 	c := &Channel{
-		uid:      uuid.Formatter(uuid.NewV4(), uuid.Clean),
 		rspCh:    make(map[string]chan *Response),
 		listener: listener,
 		handlers: hs,
@@ -45,16 +42,12 @@ func NewChannel(hs map[string]Handler, listener ChannelListener) *Channel {
 	return c
 }
 
-func (c *Channel) UID() string {
-	return c.uid
-}
-
 func (c *Channel) RemoteAddr() string {
 	return c.conn.RemoteAddr().String()
 }
 
 func (c *Channel) String() string {
-	return fmt.Sprintf("[%s:%s]", c.uid, c.conn.RemoteAddr().String())
+	return fmt.Sprintf("[%s]", c.conn.RemoteAddr().String())
 }
 
 func (c *Channel) IsValid() bool {
@@ -157,9 +150,6 @@ func (c *Channel) writeResponse(rsp *Response) (err error) {
 	return
 }
 
-/**
-不忽略read的任何错误
-**/
 func (c *Channel) readAtLeast(buf []byte, min int, timeout time.Time) (n int, err error) {
 	if len(buf) < min {
 		return 0, io.ErrShortBuffer
@@ -187,7 +177,6 @@ func (c *Channel) readMessage() (body []byte, err error) {
 			if !ok || !operr.Timeout() || timeout {
 				return
 			}
-			//如果超时，发个HelloReq给对方
 			if _, err = c.conn.Write(helloReq); err != nil {
 				warnPrint("failed hello request:", c.conn.RemoteAddr().String(), err)
 			}
@@ -272,8 +261,7 @@ func (c *Channel) handle(req *pb.Request) {
 	}
 }
 
-//要求传入一个可用的Conn
-func (c *Channel) Serve(con net.Conn) {
+func (c *Channel) serve(con net.Conn) {
 	c.conn = con
 	if c.listener != nil {
 		c.listener.OnConnecting(c)

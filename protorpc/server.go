@@ -7,13 +7,15 @@ import (
 )
 
 type Server struct {
+	listener ChannelListener
 	handlers map[string]Handler
 	ls       net.Listener
 	stop     int32
 }
 
-func NewServer() *Server {
+func NewServer(listener ChannelListener) *Server {
 	s := &Server{
+		listener: listener,
 		handlers: make(map[string]Handler),
 	}
 	return s
@@ -33,7 +35,7 @@ func (s *Server) Handle(cmd string, handler Handler) {
 	s.handlers[cmd] = handler
 }
 
-func (s *Server) Serve(addr string, listener ChannelListener) error {
+func (s *Server) Serve(addr string) error {
 	ls, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -49,13 +51,13 @@ func (s *Server) Serve(addr string, listener ChannelListener) error {
 			}
 			return err
 		}
-		c := NewChannel(s.handlers, listener)
-		c.Serve(cc)
+		c := newChannel(s.handlers, s.listener)
+		c.serve(cc)
 	}
 	return nil
 }
 
-func (s *Server) ServeTls(addr string, tlsCfg *tls.Config, listener ChannelListener) error {
+func (s *Server) ServeTls(addr string, tlsCfg *tls.Config) error {
 	ls, err := tls.Listen("tcp", addr, tlsCfg)
 	if err != nil {
 		return err
@@ -71,13 +73,13 @@ func (s *Server) ServeTls(addr string, tlsCfg *tls.Config, listener ChannelListe
 			}
 			return err
 		}
-		c := NewChannel(s.handlers, listener)
-		c.Serve(cc)
+		c := newChannel(s.handlers, s.listener)
+		c.serve(cc)
 	}
 	return nil
 }
 
-func (s *Server) ServeTlsWithPem(addr string, pem, key []byte, listener ChannelListener) error {
+func (s *Server) ServeTlsWithPem(addr string, pem, key []byte) error {
 	cert, err := tls.X509KeyPair(pem, key)
 	if err != nil {
 		return err
@@ -85,10 +87,10 @@ func (s *Server) ServeTlsWithPem(addr string, pem, key []byte, listener ChannelL
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}
-	return s.ServeTls(addr, tlsConfig, listener)
+	return s.ServeTls(addr, tlsConfig)
 }
 
-func (s *Server) ServeTlsWithPemFile(addr, pem, key string, listener ChannelListener) error {
+func (s *Server) ServeTlsWithPemFile(addr, pem, key string) error {
 	cert, err := tls.LoadX509KeyPair(pem, key)
 	if err != nil {
 		return err
@@ -96,7 +98,7 @@ func (s *Server) ServeTlsWithPemFile(addr, pem, key string, listener ChannelList
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}
-	return s.ServeTls(addr, tlsConfig, listener)
+	return s.ServeTls(addr, tlsConfig)
 }
 
 func (s *Server) Stop() {

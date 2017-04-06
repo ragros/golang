@@ -12,7 +12,12 @@ type Client struct {
 	channel   *Channel
 	tlsConfig *tls.Config
 	handlers  map[string]Handler
-	listener  ChannelListener
+	listener  clientListener
+}
+
+type clientListener struct {
+	listener ChannelListener
+	*Client
 }
 
 //if reDial is zero,no retry
@@ -22,8 +27,9 @@ func NewClient(svrAddr string, reDial int32, tlsCfg *tls.Config, listener Channe
 		redial:    time.Duration(reDial) * time.Millisecond,
 		tlsConfig: tlsCfg,
 		handlers:  make(map[string]Handler),
-		listener:  listener,
 	}
+	c.listener.listener = listener
+	c.listener.Client = c
 	return c
 }
 
@@ -33,7 +39,7 @@ func (c *Client) Serve() bool {
 		c.channel.Close()
 		<-time.After(100 * time.Millisecond)
 	}
-	c.channel = NewChannel(c.handlers, c)
+	c.channel = newChannel(c.handlers, &c.listener)
 	return c.dialLoop()
 }
 
@@ -41,7 +47,7 @@ func (c *Client) ServeBG() {
 	if c.channel != nil {
 		return
 	}
-	c.channel = NewChannel(c.handlers, c)
+	c.channel = newChannel(c.handlers, &c.listener)
 	go c.dialLoop()
 }
 
@@ -86,7 +92,7 @@ func (c *Client) dialLoop() (succ bool) {
 		}
 		<-time.After(c.redial)
 	}
-	c.channel.Serve(conn)
+	c.channel.serve(conn)
 	succ = true
 	return
 }
@@ -97,16 +103,16 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) OnConnected(ch *Channel) {
+func (c *clientListener) OnConnected(ch *Channel) {
 	if c.listener != nil {
 		c.listener.OnConnected(ch)
 	}
 }
 
-func (c *Client) OnConnecting(ch *Channel) {
+func (c *clientListener) OnConnecting(ch *Channel) {
 }
 
-func (c *Client) OnDisconnect(ch *Channel) {
+func (c *clientListener) OnDisconnect(ch *Channel) {
 	if c.listener != nil {
 		c.listener.OnDisconnect(ch)
 	}
