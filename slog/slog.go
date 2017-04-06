@@ -31,6 +31,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/ragros/golang/logadapter"
 )
 
 type flags struct {
@@ -60,8 +62,16 @@ const (
 )
 
 var (
-	_flags flags
-	preset *logger = New(LevDEBUG, NewConsole())
+	_flags        flags
+	preset        *logger = New(LevDEBUG, NewConsole())
+	adapterTagMap         = map[int]string{
+		logadapter.LevDEBUG: "[DEBUG]",
+		logadapter.LevVERBO: "[VERBO]",
+		logadapter.LevINFO:  "[INFO ]",
+		logadapter.LevWARN:  "[WARN ]",
+		logadapter.LevERROR: "[ERROR]",
+		logadapter.LevNOTE:  "[NOTE ]",
+	}
 )
 
 func init() {
@@ -258,6 +268,7 @@ func (l *logger) Fatalf(format string, args ...interface{}) {
 	<-time.After(2 * time.Second)
 	os.Exit(2)
 }
+
 func (l *logger) Exitf(format string, args ...interface{}) {
 	l.outf(LevNOTE, format, args...)
 	<-time.After(2 * time.Second)
@@ -328,25 +339,24 @@ func Exitf(format string, args ...interface{}) {
 Print,Printf,Println,Output to adapt standard lib log
 **/
 func (l *logger) Print(args ...interface{}) {
-	l.Output(2, fmt.Sprint(args...))
+	l.Outputln(2, logadapter.LevNOTE, fmt.Sprint(args...))
 }
 func (l *logger) Println(args ...interface{}) {
-	l.Output(2, fmt.Sprint(args...))
+	l.Outputln(2, logadapter.LevNOTE, fmt.Sprint(args...))
 }
 func (l *logger) Printf(format string, args ...interface{}) {
-	l.Output(2, fmt.Sprintf(format, args...))
+	l.Outputln(2, logadapter.LevNOTE, fmt.Sprintf(format, args...))
 }
 
-//depth(Output)=1
-func (l *logger) Output(calldepth int, msg string) error {
-	s := l.f.Format(calldepth, "", msg)
+func (l *logger) Outputln(calldepth, lev int, msg string) {
+	s := l.f.Format(calldepth, adapterTagMap[lev], msg)
 	ps := l.lp
 	for _, n := range ps {
 		if err := n.p.Print(s); err != nil {
 			l.slogerr(err)
 		}
 	}
-	return nil
+
 }
 
 func (l *logger) out(lv lev, args ...interface{}) {
