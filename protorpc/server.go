@@ -41,7 +41,7 @@ func (s *Server) Serve(addr string) error {
 		return err
 	}
 	s.ls = ls
-	infoPrint("start serve tcp:", addr)
+	Logger.Info("start serve tcp:", addr)
 	atomic.StoreInt32(&s.stop, 0)
 	for {
 		cc, err := ls.Accept()
@@ -63,7 +63,7 @@ func (s *Server) ServeTls(addr string, tlsCfg *tls.Config) error {
 		return err
 	}
 	s.ls = ls
-	infoPrint("start serve tls:", addr)
+	Logger.Info("start serve tls:", addr)
 	atomic.StoreInt32(&s.stop, 0)
 	for {
 		cc, err := ls.Accept()

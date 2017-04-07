@@ -21,10 +21,10 @@ type clientListener struct {
 }
 
 //if reDial is zero,no retry
-func NewClient(svrAddr string, reDial int32, tlsCfg *tls.Config, listener ChannelListener) *Client {
+func NewClient(svrAddr string, redialMillis int32, tlsCfg *tls.Config, listener ChannelListener) *Client {
 	c := &Client{
 		addr:      svrAddr,
-		redial:    time.Duration(reDial) * time.Millisecond,
+		redial:    time.Duration(redialMillis) * time.Millisecond,
 		tlsConfig: tlsCfg,
 		handlers:  make(map[string]Handler),
 	}
@@ -86,7 +86,7 @@ func (c *Client) dialLoop() (succ bool) {
 		if err == nil {
 			break
 		}
-		errPrint("connect to server failed:", err)
+		Logger.Error("connect to server failed:", err)
 		if c.redial == 0 {
 			return
 		}

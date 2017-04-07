@@ -83,7 +83,7 @@ func (c *Channel) Execute(req *Request, rspTimeout time.Duration) *Response {
 	if atomic.LoadInt32(&c.valid) != 1 {
 		return NewResponse(req.ReqId(), Result_LINK_BROKEN)
 	}
-	bs, err := req.marshal()
+	bs, err := req.Marshal()
 	if err != nil {
 		return NewResponse2(req.ReqId(), Result_CLIENT_EXCEPTION, err.Error())
 	}
@@ -91,7 +91,7 @@ func (c *Channel) Execute(req *Request, rspTimeout time.Duration) *Response {
 	if !ok {
 		return NewResponse(req.ReqId(), Result_DUPLICATE_REQID)
 	}
-	err = c.send(bs)
+	err = c.Send(bs)
 	if err != nil {
 		c.remRspChan(req.ReqId())
 		return NewResponse2(req.ReqId(), Result_CLIENT_EXCEPTION, err.Error())
@@ -107,7 +107,7 @@ func (c *Channel) Execute(req *Request, rspTimeout time.Duration) *Response {
 	}
 }
 
-func (c *Channel) send(bd []byte) error {
+func (c *Channel) Send(bd []byte) error {
 	if len(bd) > 0xffffff {
 		return fmt.Errorf("frame over length")
 	}
@@ -128,11 +128,11 @@ func (c *Channel) Notice(req *Request) (err error) {
 		return
 	}
 	var bs []byte
-	bs, err = req.marshal()
+	bs, err = req.Marshal()
 	if err != nil {
 		return
 	}
-	err = c.send(bs)
+	err = c.Send(bs)
 	return
 }
 
@@ -146,7 +146,7 @@ func (c *Channel) writeResponse(rsp *Response) (err error) {
 	if err != nil {
 		return
 	}
-	err = c.send(bs)
+	err = c.Send(bs)
 	return
 }
 
@@ -178,7 +178,7 @@ func (c *Channel) readMessage() (body []byte, err error) {
 				return
 			}
 			if _, err = c.conn.Write(helloReq); err != nil {
-				warnPrint("failed hello request:", c.conn.RemoteAddr().String(), err)
+				Logger.Error("failed hello request:", c.conn.RemoteAddr().String(), err)
 			}
 			timeout = true
 			continue
@@ -192,7 +192,7 @@ func (c *Channel) readMessage() (body []byte, err error) {
 		lens = int(binary.BigEndian.Uint32(c.header))
 		if lens == 0 {
 			if _, err = c.conn.Write(helloRsp); err != nil {
-				warnPrint("failed hello response:", c.conn.RemoteAddr().String(), err)
+				Logger.Warn("failed hello response:", c.conn.RemoteAddr().String(), err)
 			}
 			continue
 		} else if lens == 1 {
@@ -209,7 +209,7 @@ func (c *Channel) readLoop() {
 	for {
 		bs, err := c.readMessage()
 		if err != nil {
-			errPrint("channel read error:", err)
+			Logger.Error("channel read error:", err)
 			break
 		}
 		go c.marshalAndHandle(bs)
@@ -224,7 +224,7 @@ func (c *Channel) readLoop() {
 func (c *Channel) marshalAndHandle(bs []byte) {
 	msg := &pb.Message{}
 	if err := proto.Unmarshal(bs, msg); err != nil {
-		warnPrint("failed Unmarshal:", err)
+		Logger.Warn("failed Unmarshal:", err)
 		return
 	}
 	if req := msg.GetRequest(); req != nil {
@@ -237,7 +237,7 @@ func (c *Channel) marshalAndHandle(bs []byte) {
 			ack.dp = ack
 			ch <- ack
 		} else {
-			warnPrint("drop unknown response [%s]:%s", rsp.GetReqId(), c.String())
+			Logger.Warnf("drop unknown response [%s]:%s", rsp.GetReqId(), c.String())
 		}
 	}
 
@@ -257,7 +257,7 @@ func (c *Channel) handle(req *pb.Request) {
 	}
 	err := c.writeResponse(rsp)
 	if err != nil {
-		errPrint("write response error:", err)
+		Logger.Error("write response error:", err)
 	}
 }
 

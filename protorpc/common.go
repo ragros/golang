@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"reflect"
 	"strconv"
 	"unsafe"
 
+	"github.com/ragros/golang/logadapter"
 	pb "github.com/ragros/golang/protorpc/internal"
 
 	"github.com/golang/protobuf/proto"
@@ -32,8 +32,10 @@ const (
 )
 
 var (
-	Debug         = false
-	Logger        = ILogger(log.New(os.Stderr, "[protorpc] ", log.Ltime|log.Lmicroseconds|log.Lshortfile))
+	Logger = logadapter.NewFromStd(log.New(os.Stderr,
+		"[protorpc] ",
+		log.Ltime|log.Lmicroseconds|log.Lshortfile),
+	)
 	ErrLinkBroken = errors.New("BrokenLink")
 	ErrNotFound   = errors.New("NotFound")
 	result_name   = map[int32]string{
@@ -50,34 +52,6 @@ var (
 		10: "INVALID_REQUEST",
 	}
 )
-
-type ILogger interface {
-	Output(depth int, msg string) error
-}
-
-func errPrint(v ...interface{}) {
-	if Logger != nil {
-		Logger.Output(3, "[ERROR]"+fmt.Sprint(v...))
-	}
-}
-
-func warnPrint(v ...interface{}) {
-	if Logger != nil {
-		Logger.Output(3, "[WARN ]"+fmt.Sprint(v...))
-	}
-}
-
-func infoPrint(v ...interface{}) {
-	if Logger != nil {
-		Logger.Output(3, "[INFO ]"+fmt.Sprint(v...))
-	}
-}
-
-func dbgPrint(v ...interface{}) {
-	if Debug && Logger != nil {
-		Logger.Output(3, "[DEBUG]"+fmt.Sprint(v...))
-	}
-}
 
 type Handler interface {
 	Handle(*Channel, *Request) *Response
@@ -435,7 +409,7 @@ func (t *dataOper) GetJsonObject(key string, out interface{}) error {
 	return js.Decode(out)
 }
 
-func (t *Request) marshal() ([]byte, error) {
+func (t *Request) Marshal() ([]byte, error) {
 	en := &pb.Message{
 		Request: t.msg,
 	}
